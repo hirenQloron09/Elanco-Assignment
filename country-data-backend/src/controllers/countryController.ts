@@ -1,62 +1,136 @@
-import { Request, Response } from 'express';
-import axios from 'axios';
+import { Request, Response, NextFunction, RequestHandler } from "express";
+import axios from "axios";
 
-const REST_COUNTRIES_API = 'https://restcountries.com/v3.1/all';
+const REST_COUNTRIES_API = "https://restcountries.com/v3.1";
+
+// Utility to fetch all countries
+const fetchAllCountries = async () => {
+  const { data } = await axios.get(`${REST_COUNTRIES_API}/all`);
+  return data;
+};
+
+
+// Helper: case-insensitive exact match function for names
+const containsExactMatch = (text: string, search: string) => {
+  const regex = new RegExp(`^${search}`, "i"); // Word boundary matching (case insensitive)
+  return regex.test(text);
+};
+// Utility to handle errors
+const handleError = (res: Response, error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  res.status(500).json({ error: message });
+};
+
+
 
 // Get all countries
-export const getCountries = async (req: Request, res: Response) => {
-    const response = await axios.get(REST_COUNTRIES_API);
-    const countries = response.data.map((country: any) => ({
+export const getCountries: RequestHandler = async (req, res) => {
+  try {
+    const countries = await fetchAllCountries();
+    const result = countries.map((country: any) => ({
       name: country.name.common,
-      flag: country.flags.svg,
+      flag: country.flags?.svg || country.flags?.png,
       region: country.region,
+      timezones: country.timezones,
+      cioc: country.cioc,
     }));
-    res.json(countries);
+    res.status(200).json(result); 
+  } catch (error) {
+    handleError(res, error);
+  }
 };
 
 // Get country by code
-export const getCountryByCode = async (req: Request, res: Response) => {
-  const { code } = req.params;
-    const response = await axios.get(`https://restcountries.com/v3.1/alpha/${code}`);
-    const country = response.data[0];
-    res.json({
+export const getCountryByCode: RequestHandler = async (req, res) => {
+  try {
+    const { code } = req.params;
+
+    const { data } = await axios.get(`${REST_COUNTRIES_API}/alpha/${code}`);
+    const country = data[0];
+
+    res.status(200).json({
       name: country.name.common,
-      flag: country.flags.svg,
+      flag: country.flags?.svg || country.flags?.png,
       population: country.population,
       languages: country.languages,
       region: country.region,
-      currency: country.currencies,
+      currencies: country.currencies,
+      timezones: country.timezones,
+      capital: country.capital,
     });
+  } catch (error) {
+    handleError(res, error);
+  }
 };
 
 // Filter countries by region
-export const filterCountriesByRegion = async (req: Request, res: Response) => {
-  const { region } = req.params;
-    const response = await axios.get(REST_COUNTRIES_API);
-    const countries = response.data.filter((country: any) => country.region === region);
-    res.json(countries);
+export const filterCountriesByRegion: RequestHandler = async (req, res) => {
+  try {
+    const { region } = req.params;
+    const countries = await fetchAllCountries();
+
+    const filtered = countries
+      .filter(
+        (country: any) => country.region.toLowerCase() === region.toLowerCase()
+      )
+      .map((country: any) => ({
+        name: country.name.common,
+        flag: country.flags?.svg || country.flags?.png,
+        region: country.region,
+      }));
+
+
+    res.status(200).json(filtered);
+  } catch (error) {
+    handleError(res, error);
+  }
 };
 
 // Search countries
-export const searchCountries = async (req: Request, res: Response) => {
-  const { name, capital, region, timezone } = req.query;
-    const response = await axios.get(REST_COUNTRIES_API);
-    let countries = response.data;
+export const searchCountries: RequestHandler = async (req, res) => {
+  try {
+
+    const { name, capital, region, timezone } = req.query;
+    let countries: any[] = await fetchAllCountries();
+
+    // Apply name filter if provided
     if (name) {
-      countries = countries.filter((country: any) =>
-        country.name.common.toLowerCase().includes((name as string).toLowerCase())
+      countries = countries.filter((country) =>
+        containsExactMatch(country.name.common, name as string)
       );
     }
+
+    // Apply capital filter if provided
     if (capital) {
-      countries = countries.filter((country: any) =>
-        country.capital && country.capital[0].toLowerCase().includes((capital as string).toLowerCase())
+      countries = countries.filter((country) =>
+        country.capital?.some((cap: string) =>
+          containsExactMatch(cap, capital as string)
+        )
       );
     }
+
+    // Apply region filter if provided
     if (region) {
-      countries = countries.filter((country: any) => country.region === region);
+      countries = countries.filter((country) =>
+        containsExactMatch(country.region, region as string)
+      );
     }
+
+    // Apply timezone filter if provided
     if (timezone) {
-      countries = countries.filter((country: any) => country.timezones.includes(timezone as string));
+      countries = countries.filter((country) =>
+        country.timezones?.some((tz: string) =>
+          containsExactMatch(tz, timezone as string)
+        )
+      );
     }
-    res.json(countries);
+const finResult = countries.map((country: any) => ({
+  name: country.name.common,
+  flag: country.flags?.svg || country.flags?.png,
+  region: country.region,
+}));
+    res.status(200).json(finResult);
+  } catch (error) {
+    handleError(res, error);
   }
+};
